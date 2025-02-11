@@ -2,15 +2,21 @@ const { app, BrowserWindow, ipcMain, Notification } = require('electron');
 const path = require('path');
 const edge = require('edge-js');
 
-// Initialize edge.js functions
+// Initialize edge.js functions with absolute paths for production build
+const getDllPath = () => {
+    return app.isPackaged 
+        ? path.join(process.resourcesPath, 'lanbridge.dll')
+        : path.join(__dirname, 'lanbridge.dll');
+};
+
 const bridgeServer = edge.func({
-    assemblyFile: path.join(__dirname, 'lanbridge.dll'),
+    assemblyFile: getDllPath(),
     typeName: 'LanBridge.BridgeServer',
     methodName: 'StartServer'
 });
 
 const bridgeClient = edge.func({
-    assemblyFile: path.join(__dirname, 'lanbridge.dll'), 
+    assemblyFile: getDllPath(),
     typeName: 'LanBridge.BridgeClient',
     methodName: 'ConnectToServer'
 });

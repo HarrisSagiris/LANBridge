@@ -1,29 +1,45 @@
 const { app, BrowserWindow, ipcMain, Notification } = require('electron');
 const path = require('path');
-const edge = require('edge-js');
-
-// Initialize edge.js functions with absolute paths for production build
-const getDllPath = () => {
-    return app.isPackaged 
-        ? path.join(process.resourcesPath, 'lanbridge.dll')
-        : path.join(__dirname, 'lanbridge.dll');
-};
-
-const bridgeServer = edge.func({
-    assemblyFile: getDllPath(),
-    typeName: 'LanBridge.BridgeServer',
-    methodName: 'StartServer'
-});
-
-const bridgeClient = edge.func({
-    assemblyFile: getDllPath(),
-    typeName: 'LanBridge.BridgeClient',
-    methodName: 'ConnectToServer'
-});
+const net = require('net');
+const crypto = require('crypto');
 
 let mainWindow;
 let server = null;
 let client = null;
+
+// Generate a random 6-digit code
+function generateConnectionCode() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Simple TCP server implementation
+function createServer() {
+    const connectionCode = generateConnectionCode();
+    const server = net.createServer();
+    
+    server.listen(0, () => {
+        const port = server.address().port;
+        console.log(`Server listening on port ${port}`);
+    });
+
+    return { server, connectionCode };
+}
+
+// Simple TCP client implementation 
+function createClient(ipAddress, connectionCode) {
+    return new Promise((resolve, reject) => {
+        const client = new net.Socket();
+        
+        client.connect(3000, ipAddress, () => {
+            client.write(connectionCode);
+            resolve({ client });
+        });
+
+        client.on('error', (err) => {
+            reject(new Error('Failed to connect to server'));
+        });
+    });
+}
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -102,11 +118,11 @@ function createWindow() {
     // Handle window close
     mainWindow.on('closed', () => {
         if (server) {
-            server.stop();
+            server.close();
             server = null;
         }
         if (client) {
-            client.disconnect();
+            client.destroy();
             client = null;
         }
     });
@@ -136,7 +152,7 @@ ipcMain.on('start-server', async () => {
             throw new Error('Server is already running');
         }
 
-        const result = await bridgeServer();
+        const result = createServer();
         server = result.server;
         const connectionCode = result.connectionCode;
 
@@ -168,7 +184,7 @@ ipcMain.on('connect-client', async (event, { ipAddress, connectionCode }) => {
             throw new Error('IP address and connection code are required');
         }
 
-        const result = await bridgeClient({ ipAddress, connectionCode });
+        const result = await createClient(ipAddress, connectionCode);
         client = result.client;
 
         mainWindow.webContents.send('client-connected');
@@ -192,12 +208,12 @@ ipcMain.on('connect-client', async (event, { ipAddress, connectionCode }) => {
 // Handle disconnection
 ipcMain.on('disconnect', () => {
     if (client) {
-        client.disconnect();
+        client.destroy();
         client = null;
         mainWindow.webContents.send('client-disconnected');
     }
     if (server) {
-        server.stop();
+        server.close();
         server = null;
         mainWindow.webContents.send('server-stopped');
     }

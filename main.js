@@ -1,5 +1,20 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification } = require('electron');
 const path = require('path');
+const edge = require('edge-js');
+
+// Initialize BridgeServer using edge.js
+const BridgeServer = edge.func({
+    assemblyFile: 'lanbridge.dll',
+    typeName: 'LanBridge.BridgeServer',
+    methodName: 'StartServer'
+});
+
+// Initialize BridgeClient using edge.js
+const BridgeClient = edge.func({
+    assemblyFile: 'lanbridge.dll', 
+    typeName: 'LanBridge.BridgeClient',
+    methodName: 'ConnectToServer'
+});
 
 let mainWindow;
 

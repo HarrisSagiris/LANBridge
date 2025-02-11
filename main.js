@@ -2,29 +2,31 @@ const { app, BrowserWindow, ipcMain, Notification } = require('electron');
 const path = require('path');
 const edge = require('edge-js');
 
-// Initialize BridgeServer using edge.js
-const BridgeServer = edge.func({
-    assemblyFile: 'lanbridge.dll',
+// Initialize edge.js functions
+const bridgeServer = edge.func({
+    assemblyFile: path.join(__dirname, 'lanbridge.dll'),
     typeName: 'LanBridge.BridgeServer',
     methodName: 'StartServer'
 });
 
-// Initialize BridgeClient using edge.js
-const BridgeClient = edge.func({
-    assemblyFile: 'lanbridge.dll', 
+const bridgeClient = edge.func({
+    assemblyFile: path.join(__dirname, 'lanbridge.dll'), 
     typeName: 'LanBridge.BridgeClient',
     methodName: 'ConnectToServer'
 });
 
 let mainWindow;
+let server = null;
+let client = null;
 
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1024,
         height: 768,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false
         },
         title: 'LAN Bridge',
         icon: path.join(__dirname, 'assets/icon.png'),
@@ -64,16 +66,25 @@ function createWindow() {
                     label: 'About',
                     click: () => {
                         const aboutWindow = new BrowserWindow({
-                            width: 300,
-                            height: 200,
+                            width: 400,
+                            height: 300,
                             parent: mainWindow,
                             modal: true,
-                            show: false
+                            show: false,
+                            webPreferences: {
+                                contextIsolation: true
+                            }
                         });
                         aboutWindow.loadFile('about.html');
                         aboutWindow.once('ready-to-show', () => {
                             aboutWindow.show();
                         });
+                    }
+                },
+                {
+                    label: 'Documentation',
+                    click: async () => {
+                        await require('electron').shell.openExternal('https://github.com/lan-bridge/docs');
                     }
                 }
             ]
@@ -81,6 +92,18 @@ function createWindow() {
     ];
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
+
+    // Handle window close
+    mainWindow.on('closed', () => {
+        if (server) {
+            server.stop();
+            server = null;
+        }
+        if (client) {
+            client.disconnect();
+            client = null;
+        }
+    });
 }
 
 // Handle app lifecycle
@@ -103,40 +126,73 @@ app.on('window-all-closed', () => {
 // IPC handlers for communication with renderer process
 ipcMain.on('start-server', async () => {
     try {
-        const server = new BridgeServer();
-        const connectionCode = await server.StartServer();
+        if (server) {
+            throw new Error('Server is already running');
+        }
+
+        const result = await bridgeServer();
+        server = result.server;
+        const connectionCode = result.connectionCode;
+
         mainWindow.webContents.send('server-started', connectionCode);
         
-        // Show notification
         new Notification({
             title: 'Server Started',
-            body: `Connection code: ${connectionCode}`
+            body: `Connection code: ${connectionCode}`,
+            icon: path.join(__dirname, 'assets/icon.png')
         }).show();
         
     } catch (error) {
         mainWindow.webContents.send('error', error.message);
+        new Notification({
+            title: 'Server Error',
+            body: error.message,
+            icon: path.join(__dirname, 'assets/icon.png')
+        }).show();
     }
 });
 
 ipcMain.on('connect-client', async (event, { ipAddress, connectionCode }) => {
     try {
-        const client = new BridgeClient();
-        await client.ConnectToServer(ipAddress, connectionCode);
+        if (client) {
+            throw new Error('Already connected to a server');
+        }
+
+        if (!ipAddress || !connectionCode) {
+            throw new Error('IP address and connection code are required');
+        }
+
+        const result = await bridgeClient({ ipAddress, connectionCode });
+        client = result.client;
+
         mainWindow.webContents.send('client-connected');
         
-        // Show notification
         new Notification({
             title: 'Connected',
-            body: 'Successfully connected to server'
+            body: 'Successfully connected to server',
+            icon: path.join(__dirname, 'assets/icon.png')
         }).show();
         
     } catch (error) {
         mainWindow.webContents.send('error', error.message);
-        
-        // Show error notification
         new Notification({
             title: 'Connection Error',
-            body: error.message
+            body: error.message,
+            icon: path.join(__dirname, 'assets/icon.png')
         }).show();
+    }
+});
+
+// Handle disconnection
+ipcMain.on('disconnect', () => {
+    if (client) {
+        client.disconnect();
+        client = null;
+        mainWindow.webContents.send('client-disconnected');
+    }
+    if (server) {
+        server.stop();
+        server = null;
+        mainWindow.webContents.send('server-stopped');
     }
 });

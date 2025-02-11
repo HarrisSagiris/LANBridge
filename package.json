@@ -1,11 +1,12 @@
 {
   "name": "lan-bridge",
   "version": "1.0.0",
-  "description": "LAN Bridge application for connecting devices",
+  "description": "LAN Bridge application for connecting devices", 
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "dotnet build lanbridge.cs"
+    "build": "dotnet build lanbridge.cs",
+    "build": "electron-builder build --win"
   },
   "dependencies": {
     "electron": "^24.3.0",
